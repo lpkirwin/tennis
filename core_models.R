@@ -82,6 +82,7 @@ prb.set <- function(sgp, rgp) {
   prb <- numeric(7)
   osgp <- 1 - sgp # prb of break on p1 serve
   orgp <- 1 - rgp # prb of hold on p2 serve
+  
   # 6-0, only one way this can happen
   prb[1] <- sgp^3 * rgp^3
   # 6-1, two types of ways this can happen:
@@ -89,22 +90,25 @@ prb.set <- function(sgp, rgp) {
   prb[2] <- sgp^4 * rgp^2 * orgp * 3 +
   #   2nd: drop one service point, 3c1
             sgp^3 * rgp^3 * osgp * 3
+  
   # 6-2, three types of ways this can happen:
   #   1st, drop two return points, 4c2
-  prb[3] <- sgp^4 * rgp^2 * orgp^2 * 6 +
-  #   2nd, drop two service points, 4c2
-            sgp^2 * rgp^4 * osgp^2 * 6 +
+  prb[3] <- sgp^4 * rgp^2 * orgp^2 *       6 +
   #   3rd, drop one of each, 4c1^2
-            sgp^3 * rgp^3 * orgp * osgp * 16
+            sgp^3 * rgp^3 * orgp * osgp * 16 +
+  #   2nd, drop two service points, 4c2
+            sgp^2 * rgp^4 * osgp^2 *       6
+  
   # 6-3, four types of ways this can happen:
   #   1st, drop 3R and 0S
   prb[4] <- sgp^5 * rgp^1 * orgp^3 *           4 +
-  #   1st, drop 2R and 1S
+  #   2nd, drop 2R and 1S
             sgp^4 * rgp^2 * orgp^2 * osgp   * 30 +
-  #   1st, drop 1R and 2S
+  #   3rd, drop 1R and 2S
             sgp^3 * rgp^3 * orgp   * ogsp^2 * 40 +
-  #   1st, drop 0R and 3S
+  #   4th, drop 0R and 3S
             sgp^2 * rgp^4 * orsp^3 *          10
+  
   # 6-4, five types of ways this can happen:
   #   1st, drop 4R and 0S
   prb[5] <- sgp^5 * rgp^1 * orgp^4 *            5 +
@@ -116,6 +120,43 @@ prb.set <- function(sgp, rgp) {
             sgp^2 * rgp^4 * orgp   * ogsp^3 *  50 +
   #   5th, drop 0R and 4S
             sgp^1 * rgp^5 *          ogsp^4 *   5
+  
+  # 7-5, six types of ways this can happen:
+  #   1st, drop 5R and 0S
+  prb[6] <- sgp^6 * rgp^1 * orgp^5 *            6 +
+  #   2nd, drop 4R and 1S
+            sgp^5 * rgp^2 * orgp^4 * osgp   *  90 +
+  #   3rd, drop 3R and 2S
+            sgp^4 * rgp^3 * orgp^3 * osgp^2 * 300 +
+  #   4th, drop 2R and 3S
+            sgp^3 * rgp^4 * orgp^2 * osgp^3 * 300 +
+  #   5th, drop 1R and 4S
+            sgp^2 * rgp^5 * orgp^1 * osgp^4 *  90 +
+  #   6th, drop 0R and 5S
+            sgp^1 * rgp^6 * orgp^0 * osgp^5 *   6
+  
+  # 6-6, seven types of ways this can happen:
+  #   1st, drop 6R and 0S
+  prb[7] <- sgp^6 *         orgp^6 *            1 +
+  #   2nd, drop 5R and 1S
+            sgp^5 * rgp   * orgp^5 * osgp   *  36 +
+  #   3rd, drop 4R and 2S
+            sgp^4 * rgp^2 * orgp^4 * osgp^2 * 225 +
+  #   4th, drop 3R and 3S
+            sgp^3 * rgp^3 * orgp^3 * osgp^3 * 400 +
+  #   5th, drop 2R and 4S
+            sgp^2 * rgp^4 * orgp^2 * osgp^4 * 225 +
+  #   6th, drop 1R and 5S
+            sgp   * rgp^5 * orgp   * osgp^5 *  36 +
+  #   7th, drop 0R and 6S
+                    rgp^6 *          osgp^6 *   1
+  
+  # multiply last by chance of winning tiebreak
+  prb[7] <- prb[7] * p.tiebreak(spp, rpp)
+  
+  # name + return vector
+  names(prb) <- c("6-0", "6-1", "6-2", "6-3", "6-4", "7-5", "tb")
+  prb
 }
 
 # -------------------------------------------------------------------
