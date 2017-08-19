@@ -179,6 +179,90 @@ p.tiebreak <- function(SPP, RPP, TB = TB) {
 
 # FN set ============================================================
 
+# the following function returns a data.frame
+# that tabulates the possble set outcomes
+# resulting in a win by p1 -- this will be 
+# used in conjunction with the game-winning
+# probabilities in a later function
+gen_ST <- function() {
+  
+  st_order <- rep(1:0,6)
+  # ^ 1 = service game, 0 = return game
+  
+  # possible winning outcomes for p1
+  st_df <- data.frame(
+    p1g = c(6L,6L,6L,6L,6L,7L,6L), # p1 games
+    p2g = c(0L,1L,2L,3L,4L,5L,6L)  # p2 games
+  )
+  
+  # tp := total games
+  st_df$tg <- as.integer(rowSums(st_df))
+  
+  # tsp := total service games
+  st_df$tsg <- sapply(st_df$tg, function(p) {
+    sum(st_order[1:p])
+  })
+  
+  # trp := total return games
+  st_df$trg <- st_df$tg - st_df$tsg
+  
+  # indicators for whether last game is serve/return
+  st_df$lgs <- st_order[st_df$tg]
+  st_df$lgr <- 1L - st_order[st_df$tg]
+  # set to zero if final score is 6-6
+  # st_df$lgs[st_df$p2g == 6L] <- 0L
+  # st_df$lgr[st_df$p2g == 6L] <- 0L
+  
+  # for each row of st_df, we want to know
+  # all of the different ways the games could be
+  # split in terms of service/return games won
+  # by p1 and p2
+  st_cases <- lapply(1:7, function(i) {
+    r <- st_df[i,]
+    row.names(r) <- NULL
+    p1_max_sg <- r$tsg # maximum service games for p1
+    p1_min_sg <- r$p1g - r$trg # min service games for p1
+    tmp <- data.frame(p1sg = p1_max_sg:p1_min_sg)
+    cbind(r,tmp)
+  })
+  
+  st_df <- do.call(rbind, st_cases)
+  
+  # p1 return games; p2 service and return games
+  st_df$p1rg <- st_df$p1g - st_df$p1sg
+  st_df$p2sg <- st_df$tsg - st_df$p1sg
+  st_df$p2rg <- st_df$trg - st_df$p1rg
+  
+  # indicator for 12-game set
+  st_df$g12 <- as.numeric(st_df$tg == 12)
+  
+  # to calculate the overall probability of each
+  # state, e.g. winning 6-3, we need the number of 
+  # combinations of wins that results in that state
+  
+  # will do this from the POV of p2, but could
+  # do it from p1's POV and get equivalent results
+  
+  # because p2 can't win the last serve if the score
+  # isn't 6-6, we will subtract one game from the 
+  # relevant choice set
+  st_df$c_sg <- choose(st_df$tsg - st_df$lgs, st_df$p2sg)
+  st_df$c_rg <- choose(st_df$trg - st_df$lgr, st_df$p2rg)
+  st_df$comb <- pmax(st_df$c_sg * st_df$c_rg, 1)
+  
+  sum(st_df$comb) # CHECK: should be 1716
+  
+  st_df
+  
+}
+
+ST <- gen_ST()
+
+ST[22:28,]
+
+aggregate(ST$comb, list(tg = ST$tg, p1g = ST$p1g), sum)
+sum(ST$comb) # 1134
+
 # probability of winning a set 
 # as a fn of player 1's point-winning probabilities
 # sgp := service game-winning probability
@@ -365,6 +449,8 @@ p.tiebreak(0.5,0.5) # 50% exactly (!)
 
 # check no. of combinations -----------------------------------------
 
+## tiebreak
+
 L <- lapply(1:12, function(i) 0:1)
 X <- do.call(expand.grid, L)
 
@@ -380,3 +466,73 @@ head(X)
 head(Y)
 W <- apply(Y, 1, function(r) min(c(99,which(r == 7))))
 table(W)
+
+## set
+
+L10 <- lapply(1:10, function(i) 0:1)
+L12 <- lapply(1:12, function(i) 0:1)
+X10 <- do.call(expand.grid, L10)
+X12 <- do.call(expand.grid, L12)
+
+sum(rowSums(X10) == 5) * 3 #756
+
+sum(rowSums(X) == 6) # 924
+X6 <- X[rowSums(X) == 6,]
+
+# X7 <- X[rowSums(X) == 7,]
+# X7 <- X7[X7[,12] == 1L,]
+
+Y <- apply(X6, 1, cumsum)
+Y <- t(Y)
+head(X6)
+head(Y)
+W <- apply(Y, 1, function(r) min(c(99,which(r == 6))))
+table(W) # diff possibilities for sets with 6 wins
+sum(table(W)[1:5]) # 210
+
+1134 - 210
+
+aggregate(ST$comb, list(tg = ST$tg, p1g = ST$p1g), sum)
+sum(ST$comb) # 1134
+
+
+## starting AGAIN
+
+### how many 6-6 scores?
+
+L12 <- lapply(1:12, function(i) 0:1)
+X12 <- do.call(expand.grid, L12)
+
+X12 <- X12[rowSums(X12) == 6L,] # score is 6-6
+X12 <- X12[rowSums(X12[,11:12]) == 1L,] # each won...
+# ...one of last two games
+
+#### 504 ways to get to 6-6 
+
+### how many 7-5 scores?
+L12 <- lapply(1:12, function(i) 0:1)
+X12 <- do.call(expand.grid, L12)
+
+X12 <- X12[rowSums(X12) == 7L,] # p1 has seven points
+X12 <- X12[X12[,12] == 1L,] # won the last point
+X12 <- X12[rowSums(X12[,1:10]) == 5L,] # score passed through 5-5
+
+#### 252 ways to get to 7-5
+
+# code profiling ----------------------------------------------------
+
+source("prof_script.R")
+x = runif(10000)
+y = runif(10000)
+
+# library(lineprof)
+# l <- lineprof(prb.tiebreak(x,y))
+# l
+# shine(l)
+
+Rprof(tmp <- tempfile())
+g <- prb.tiebreak(x,y)
+Rprof()
+library(proftools)
+plotProfileCallGraph(readProfileData(tmp),
+                     score = "self")
