@@ -234,7 +234,7 @@ gen_ST <- function() {
   st_df$p2rg <- st_df$trg - st_df$p1rg
   
   # indicator for 12-game set
-  st_df$g12 <- as.numeric(st_df$tg == 12)
+  st_df$g12 <- as.integer(st_df$tg == 12)
   
   # to calculate the overall probability of each
   # state, e.g. winning 6-3, we need the number of 
@@ -246,11 +246,17 @@ gen_ST <- function() {
   # because p2 can't win the last serve if the score
   # isn't 6-6, we will subtract one game from the 
   # relevant choice set
-  st_df$c_sg <- choose(st_df$tsg - st_df$lgs, st_df$p2sg)
-  st_df$c_rg <- choose(st_df$trg - st_df$lgr, st_df$p2rg)
+  st_df$c_sg <- with(st_df, choose(tsg - lgs - g12, p2sg))
+  st_df$c_rg <- with(st_df, choose(trg - lgr, p2rg))
   st_df$comb <- pmax(st_df$c_sg * st_df$c_rg, 1)
+  # special case for 6-6
+  st_df$comb[st_df$p2g == 6L] <- with(
+    st_df[st_df$p2g == 6L,],
+    choose(tsg-1,p2sg-1) * choose(trg-1,p2rg) +
+    choose(tsg-1,p2sg) * choose(trg-1,p2rg-1)
+  )
   
-  sum(st_df$comb) # CHECK: should be 1716
+  sum(st_df$comb) # CHECK: should be _____
   
   st_df
   
@@ -258,108 +264,64 @@ gen_ST <- function() {
 
 ST <- gen_ST()
 
-ST[22:28,]
-
-aggregate(ST$comb, list(tg = ST$tg, p1g = ST$p1g), sum)
-sum(ST$comb) # 1134
+# ___________________________________________________________________
 
 # probability of winning a set 
 # as a fn of player 1's point-winning probabilities
 # sgp := service game-winning probability
 # rgp := return game-winning probability
 # also uses p.tiebreak()
-prb.set <- function(SPP, RPP) {
+prb.set <- function(SPP, RPP, X = ST,
+                    has_tiebreak = TRUE) {
+  # browser()
+  SGP <- p.game(SPP)
+  OSGP <- 1 - SGP
+  ORGP <- p.game(1 - RPP)
+  RGP <- 1 - ORGP
   
-  sgp <- p.game(SPP)
-  rgp <- p.game(RPP)
-  osgp <- 1 - sgp # prb of break on p1 serve
-  orgp <- 1 - rgp # prb of hold on p2 serve
-  prb <- numeric(7)
+  tmp <- data.frame(
+    SGP = SGP, RGP = RGP,
+    OSGP = OSGP, ORGP = ORGP
+  )
   
-  # assume that p1 serves first (!)
+  # add probabilities to table of outcomes
+  X <- cbind(tmp, X)
   
-  # 6-0, only one way this can happen
-  prb[1] <- sgp^3 * rgp^3
+  # for each row in the table, compute likelihood
+  X$L <- with(X,
+    SGP^p1sg * RGP^p1rg * OSGP^p2sg * ORGP^p2rg * comb)
   
-  # 6-1, two types of ways this can happen:
-  #   1st: drop one return point, 3c1
-  prb[2] <- sgp^4 * rgp^2 * orgp *        3 +
-  #   2nd: drop one service point, 3c1
-            sgp^3 * rgp^3 *        osgp * 3
+  # sum likelihood within each category (7-0, 7-1, etc.)
+  X <- aggregate(list(L = X$L), 
+                 list(p1g = X$p1g, p2g = X$p2g),
+                 sum)
   
-  # 6-2, three types of ways this can happen:
-  #   1st, drop two return points, 4c2
-  prb[3] <- sgp^4 * rgp^2 * orgp^2 *        6 +
-  #   3rd, drop one of each, 4c1^2
-            sgp^3 * rgp^3 * orgp * osgp *  16 +
-  #   2nd, drop two service points, 4c2
-            sgp^2 * rgp^4 *        osgp^2 * 6
+  out <- X$L
   
-  # 6-3, four types of ways this can happen:
-  #   1st, drop 3R and 0S
-  prb[4] <- sgp^5 * rgp^1 * orgp^3 *           4 +
-  #   2nd, drop 2R and 1S
-            sgp^4 * rgp^2 * orgp^2 * osgp   * 30 +
-  #   3rd, drop 1R and 2S
-            sgp^3 * rgp^3 * orgp   * osgp^2 * 40 +
-  #   4th, drop 0R and 3S
-            sgp^2 * rgp^4 * orgp^3 *          10
+  # need to multiply 6-6 scenario by appropriate factor
+  if (has_tiebreak) {
+    out[7] <- out[7] * p.tiebreak(SPP, RPP)
+  } else {
+    out[7] <- out[7] * 
+      (SGP*RGP) / (SGP*RGP + (1-SGP)*(1-RGP))
+  }
   
-  # 6-4, five types of ways this can happen:
-  #   1st, drop 4R and 0S
-  prb[5] <- sgp^5 * rgp^1 * orgp^4 *            5 +
-  #   2nd, drop 3R and 1S
-            sgp^4 * rgp^2 * orgp^3 * osgp   *  50 +
-  #   3rd, drop 2R and 2S
-            sgp^3 * rgp^3 * orgp^2 * osgp^2 * 100 +
-  #   4th, drop 1R and 3S
-            sgp^2 * rgp^4 * orgp   * osgp^3 *  50 +
-  #   5th, drop 0R and 4S
-            sgp^1 * rgp^5 *          osgp^4 *   5
-  
-  # 7-5, six types of ways this can happen:
-  #   1st, drop 5R and 0S
-  prb[6] <- sgp^6 * rgp^1 * orgp^5 *            6 +
-  #   2nd, drop 4R and 1S
-            sgp^5 * rgp^2 * orgp^4 * osgp   *  90 +
-  #   3rd, drop 3R and 2S
-            sgp^4 * rgp^3 * orgp^3 * osgp^2 * 300 +
-  #   4th, drop 2R and 3S
-            sgp^3 * rgp^4 * orgp^2 * osgp^3 * 300 +
-  #   5th, drop 1R and 4S
-            sgp^2 * rgp^5 * orgp^1 * osgp^4 *  90 +
-  #   6th, drop 0R and 5S
-            sgp^1 * rgp^6 * orgp^0 * osgp^5 *   6
-  
-  # 6-6, seven types of ways this can happen:
-  #   1st, drop 6R and 0S
-  prb[7] <- sgp^6 *         orgp^6 *            1 +
-  #   2nd, drop 5R and 1S
-            sgp^5 * rgp   * orgp^5 * osgp   *  36 +
-  #   3rd, drop 4R and 2S
-            sgp^4 * rgp^2 * orgp^4 * osgp^2 * 225 +
-  #   4th, drop 3R and 3S
-            sgp^3 * rgp^3 * orgp^3 * osgp^3 * 400 +
-  #   5th, drop 2R and 4S
-            sgp^2 * rgp^4 * orgp^2 * osgp^4 * 225 +
-  #   6th, drop 1R and 5S
-            sgp   * rgp^5 * orgp   * osgp^5 *  36 +
-  #   7th, drop 0R and 6S
-                    rgp^6 *          osgp^6 *   1
-  
-  # multiply last by chance of winning tiebreak
-  prb[7] <- prb[7] * p.tiebreak(SPP, RPP)
-  
-  # name + return vector
-  names(prb) <- c("6-0", "6-1", "6-2", "6-3", "6-4", "7-5", "tb")
-  prb
+  # rename and return
+  names(out) <- paste0(X$p1g,"-",X$p2g)
+  out
   
 }
-
-prb.set(0.7,0.6)
-sum(prb.set(0.7,0.6)) # V BAD !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+prb.set <- Vectorize(prb.set)
 
 # ___________________________________________________________________
+
+p.set <- function(SPP, RPP, ST = ST) {
+  colSums(prb.set(SPP, RPP))
+}
+
+# ___________________________________________________________________
+
+
 
 # SANDBOX ===========================================================
 
@@ -447,9 +409,29 @@ p.tiebreak(0.7,0.6)
 p.tiebreak(0.5,0.5) # 50% exactly (!)
 
 
+# test set functions ------------------------------------------------
+
+prb.set(0.7,0.6)
+sum(prb.set(0.7,0.6))
+prb.set(c(0.55,0.5),c(0.45,0.5))
+
+p.set(c(0.56,0.5),c(0.46,0.5))
+
+df <- expand.grid(x = 1:99/100, y = 1:99/100)
+df$p_set <- p.set(df$x, df$y)
+
+library(ggplot2)
+
+ggplot(df, aes(x,y,color = p_set)) + geom_point()
+
+p.set(0.55,0.45)
+p.set(0.56,0.45)
+p.set(0.55,0.46)
+
+
 # check no. of combinations -----------------------------------------
 
-## tiebreak
+## TIEBREAK
 
 L <- lapply(1:12, function(i) 0:1)
 X <- do.call(expand.grid, L)
@@ -467,57 +449,34 @@ head(Y)
 W <- apply(Y, 1, function(r) min(c(99,which(r == 7))))
 table(W)
 
-## set
+## SET (somewhat trickier)
 
-L10 <- lapply(1:10, function(i) 0:1)
 L12 <- lapply(1:12, function(i) 0:1)
-X10 <- do.call(expand.grid, L10)
 X12 <- do.call(expand.grid, L12)
 
-sum(rowSums(X10) == 5) * 3 #756
+### how many 6-0 through 6-4 scores?
 
-sum(rowSums(X) == 6) # 924
-X6 <- X[rowSums(X) == 6,]
-
-# X7 <- X[rowSums(X) == 7,]
-# X7 <- X7[X7[,12] == 1L,]
-
-Y <- apply(X6, 1, cumsum)
+X6_ <- X12[rowSums(X12) == 6L,]
+Y <- apply(X6_, 1, cumsum)
 Y <- t(Y)
-head(X6)
+head(X6_)
 head(Y)
 W <- apply(Y, 1, function(r) min(c(99,which(r == 6))))
 table(W) # diff possibilities for sets with 6 wins
-sum(table(W)[1:5]) # 210
+sum(table(W)[1:5]) # 210 ways 
 
-1134 - 210
+### how many 6-6 and 7-5 scores?
 
-aggregate(ST$comb, list(tg = ST$tg, p1g = ST$p1g), sum)
-sum(ST$comb) # 1134
-
-
-## starting AGAIN
-
-### how many 6-6 scores?
-
-L12 <- lapply(1:12, function(i) 0:1)
-X12 <- do.call(expand.grid, L12)
-
-X12 <- X12[rowSums(X12) == 6L,] # score is 6-6
-X12 <- X12[rowSums(X12[,11:12]) == 1L,] # each won...
-# ...one of last two games
-
+X66 <- X12[rowSums(X12) == 6L,] # score is 6-6
+X66 <- X66[rowSums(X66[,1:10]) == 5L,] # score passed through 5-5
 #### 504 ways to get to 6-6 
 
-### how many 7-5 scores?
-L12 <- lapply(1:12, function(i) 0:1)
-X12 <- do.call(expand.grid, L12)
-
-X12 <- X12[rowSums(X12) == 7L,] # p1 has seven points
-X12 <- X12[X12[,12] == 1L,] # won the last point
-X12 <- X12[rowSums(X12[,1:10]) == 5L,] # score passed through 5-5
-
+X75 <- X12[rowSums(X12) == 7L,] # p1 has seven points
+X75 <- X75[rowSums(X75[,1:10]) == 5L,] # score passed through 5-5
 #### 252 ways to get to 7-5
+
+# TOTAL
+210 + 504 + 252
 
 # code profiling ----------------------------------------------------
 
