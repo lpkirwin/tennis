@@ -1,0 +1,230 @@
+---
+title: "Exploratory"
+output:
+  html_notebook: default
+  html_document: default
+---
+
+```{r setup}
+
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(magrittr)
+library(ggplot2)
+
+```
+
+Exploratory analysis of ATP tennis data.
+
+```{r load data}
+
+path <- "csv/4_match_scores_stats/match_scores_stats_"
+paths <- paste0(path,1991:2016,".csv")
+
+headers <- read.csv(paste0(path,"headers.csv"))
+data <- lapply(paths, read.csv, header = FALSE, stringsAsFactors = FALSE)
+data <- do.call(rbind, data)
+names(data) <- names(headers)
+data <- as.data.table(data)
+
+raw <- data
+
+```
+
+```{r number of games}
+
+ggplot(data, aes(factor(match_year), fill = tourney_surface)) + geom_bar() + 
+  scale_x_discrete(breaks = seq(1992,2016,2)) + 
+  scale_fill_manual(values = c("yellow", "coral3", "forestgreen", "dodgerblue4"))
+
+```
+
+```{r serve win ratio}
+
+ggplot(data) + 
+  geom_density(aes(winner_service_points_won/
+                     winner_service_points_total),
+               color = "blue") +
+  geom_density(aes(loser_service_points_won/
+                     loser_service_points_total),
+               color = "red")
+
+```
+
+```{r return win ratio}
+
+ggplot(data) + 
+  geom_density(aes(winner_return_points_won/
+                     winner_return_points_total),
+               color = "blue") +
+  geom_density(aes(loser_return_points_won/
+                     loser_return_points_total),
+               color = "red")
+
+```
+
+```{r wrangle pt 1}
+
+# good chunk of games with missing data
+data <- data[!is.na(loser_total_points_total)]
+
+# create unique ID
+data <- data[, 
+  match_id := paste(match_year,tourney_id,round_order,match_order, sep = "-")
+]
+
+data[,length(unique(match_id))]
+
+id_var <- which(names(data) == "match_id")
+winner_cols <- grep("winner_", names(data))
+loser_cols <- grep("loser_", names(data))
+keep_cols <- which(! 1:length(names(data)) %in% c(winner_cols, loser_cols))
+
+win <- data[, c(winner_cols, id_var), with = FALSE]
+lose <- data[, c(loser_cols, id_var), with = FALSE]
+data <- data[, keep_cols, with = FALSE] # meh
+
+```
+
+```{r wrangle pt 2}
+
+winner_names <- names(win)
+winner_names <- gsub("winner_", "", winner_names)
+loser_names <- names(lose)
+loser_names <- gsub("loser_", "", loser_names)
+setnames(win, winner_names)
+setnames(lose, loser_names)
+
+win <- win[, win := 1L]
+lose <- lose[, win := 0L]
+
+win %<>% merge(data, by = "match_id", all.x = TRUE)
+lose %<>% merge(data, by = "match_id", all.x = TRUE)
+
+data <- rbind(win, lose)
+
+data <- data[, win := factor(win)]
+
+```
+
+```{r test plot}
+
+ggplot(data, aes(color = win)) + 
+  geom_density(aes(x = return_points_won/return_points_total)) +
+  geom_density(aes(x = break_points_converted/break_points_return_total),
+               linetype = "dashed") +
+  xlim(0,1.2)
+
+```
+
+```{r sums}
+
+nums <- data[,sapply(data, is.numeric), with = FALSE]
+sums <- nums[,colSums(.SD)]
+
+sums
+
+sums["service_points_won"] / sums["service_points_total"]
+sums["return_points_won"] / sums["return_points_total"]
+sums["break_points_saved"] / sums["break_points_serve_total"]
+sums["break_points_converted"] / sums["break_points_return_total"]
+
+```
+
+# Player stats
+
+```{r}
+
+P <- data[, .(
+  n = .N,
+  serve_ratio = sum(service_points_won) / sum(service_points_total),
+  return_ratio = sum(return_points_won) / sum(return_points_total),
+  save_ratio = sum(break_points_saved) / sum(break_points_serve_total),
+  break_ratio = sum(break_points_converted) / sum(break_points_return_total)
+), by = c("slug")]
+
+```
+
+```{r}
+
+P[,hist(n)]
+
+P <- P[n > 10]
+
+```
+
+```{r}
+
+P[order(-serve_ratio)]
+
+```
+
+```{r}
+
+P[order(-return_ratio)]
+
+```
+
+```{r}
+
+P[order(-n)]
+
+```
+
+```{r}
+
+ggplot(P[n > 500]) +
+  geom_abline(slope = 1, intercept = 0, color = "white") +
+  geom_point(aes(serve_ratio, save_ratio))
+
+```
+
+```{r}
+
+ggplot(P[n > 500]) +
+  geom_abline(slope = 1, intercept = 0, color = "white") +
+  geom_point(aes(return_ratio, break_ratio))
+
+```
+
+## Players + results
+
+```{r}
+
+PR <- data[, .(
+  n = .N,
+  serve_ratio = sum(service_points_won) / sum(service_points_total),
+  return_ratio = sum(return_points_won) / sum(return_points_total),
+  save_ratio = sum(break_points_saved) / sum(break_points_serve_total),
+  break_ratio = sum(break_points_converted) / sum(break_points_return_total)
+), by = c("slug", "win")]
+
+```
+
+```{r}
+
+PR[,hist(n)]
+
+PR <- PR[n > 10]
+
+```
+
+```{r}
+
+ggplot(PR[n > 100]) +
+  geom_abline(slope = 1, intercept = 0, color = "white") +
+  geom_point(aes(serve_ratio, save_ratio, color = win))
+
+```
+
+```{r}
+
+ggplot(PR[n > 100]) +
+  geom_abline(slope = 1, intercept = 0, color = "white") +
+  geom_point(aes(return_ratio, break_ratio, color = win))
+
+```
+
+
+
